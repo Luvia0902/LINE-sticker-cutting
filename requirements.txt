@@ -1,0 +1,33 @@
+# Core dependencies for the agent system
+
+# GUI (tkinter is built-in with Python, but may need: python3-tk on Linux)
+# For Windows/Mac: tkinter is included by default
+
+# Environment management
+python-dotenv>=1.0.0
+
+# API clients
+requests>=2.31.0
+
+# Image processing (for LINE sticker handling)
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Automation (if needed)
+pyautogui>=0.9.54
+pyperclip>=1.8.2
+
+# Data handling
+pandas>=2.0.0
+
+# Google APIs (for cloud deliverables)
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+google-api-python-client>=2.100.0
+
+# Logging and debugging
+coloredlogs>=15.0.1
+
+# Testing (optional)
+pytest>=7.4.0
