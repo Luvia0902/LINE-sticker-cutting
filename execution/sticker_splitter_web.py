@@ -177,11 +177,12 @@ def main():
         
         st.caption("垂直線偏移 (Vertical)")
         for i in range(cols + 1):
-            v_offsets[i] = st.number_input(f"V-Line {i}", value=0, key=f"v_{i}")
+            # 使用 Slider 代替數字輸入，讓調整更直觀
+            v_offsets[i] = st.slider(f"調整垂直線 {i} 位置", min_value=-300, max_value=300, value=0, key=f"v_{i}")
             
         st.caption("水平線偏移 (Horizontal)")
         for i in range(rows + 1):
-            h_offsets[i] = st.number_input(f"H-Line {i}", value=0, key=f"h_{i}")
+            h_offsets[i] = st.slider(f"調整水平線 {i} 位置", min_value=-300, max_value=300, value=0, key=f"h_{i}")
 
     # --- Main Area ---
     
