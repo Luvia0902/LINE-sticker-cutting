@@ -4,6 +4,12 @@ import io
 import zipfile
 import os
 
+try:
+    from rembg import remove
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
+
 # ==========================================
 # 常數設定 (與 GUI 版本保持一致)
 # ==========================================
@@ -51,12 +57,14 @@ def create_tab_image(sticker_img):
         tab_img = tab_img.convert('RGBA')
     return tab_img
 
-def process_image(image_file, rows, cols, scale_percent, add_padding, fit_mode, gen_main, gen_tab):
+def process_image(image_file, rows, cols, scale_percent, add_padding, fit_mode, gen_main, gen_tab, offset_x=0, offset_y=0, fixed_size_mode=False, do_remove_bg=False):
     """
     處理圖片切割邏輯
     returns: bytes_io of zip file, info_text
     """
     img = Image.open(image_file)
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
     
     # 準備 Zip 檔
     zip_buffer = io.BytesIO()
@@ -64,35 +72,52 @@ def process_image(image_file, rows, cols, scale_percent, add_padding, fit_mode, 
     count = 0
     stickers_for_extras = []
     
-    cell_w = img.width / cols
-    cell_h = img.height / rows
+    if fixed_size_mode:
+        cell_w, cell_h = 512, 416 # 2560/5, 1664/4
+    else:
+        cell_w = img.width / cols
+        cell_h = img.height / rows
     
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for row in range(rows):
             for col in range(cols):
                 count += 1
                 
-                # 計算裁切區域
-                left = int(col * cell_w)
-                top = int(row * cell_h)
-                right = int((col + 1) * cell_w)
-                bottom = int((row + 1) * cell_h)
+                # 計算裁切區域 (加入偏移量)
+                left = int(col * cell_w + offset_x)
+                top = int(row * cell_h + offset_y)
+                
+                if fixed_size_mode:
+                    right = left + 512
+                    bottom = top + 416
+                else:
+                    right = int((col + 1) * cell_w + offset_x)
+                    bottom = int((row + 1) * cell_h + offset_y)
                 
                 # 邊界保護
+                if left < 0: left = 0
+                if top < 0: top = 0
                 if right > img.width: right = img.width
                 if bottom > img.height: bottom = img.height
                 
+                if right <= left or bottom <= top:
+                    # 無效區域跳過
+                    continue
+
                 sticker = img.crop((left, top, right, bottom))
                 
-                # 處理 alpha
-                if sticker.mode != 'RGBA':
-                    sticker = sticker.convert('RGBA')
+                # 去背處理
+                if do_remove_bg and REMBG_AVAILABLE:
+                    sticker = remove(sticker)
 
                 # 添加留白
                 if add_padding:
                     sticker_processed = add_padding_to_image(sticker, STICKER_PADDING)
                 else:
                     sticker_processed = sticker
+                
+                # 縮放處理 (輸出固定為 370x320)
+                # ... 剩餘邏輯保持不變 ...
                 
                 # 縮放處理 (輸出固定為 370x320)
                 target_w, target_h = sticker_processed.size
@@ -166,8 +191,9 @@ st.markdown("""
 st.sidebar.header("⚙️ 設定參數")
 
 # 規格預設
-st.sidebar.subheader("切割佈局")
+st.sidebar.subheader("📐 切割佈局")
 use_default = st.sidebar.checkbox("使用標準規格 (4x5, 20張)", value=True)
+fixed_size_mode = st.sidebar.checkbox("🔒 固定尺寸模式 (512x416)", value=False, help="忽略圖片大小，使用固定間距進行裁切")
 
 if use_default:
     rows = 4
@@ -178,16 +204,31 @@ else:
 
 st.sidebar.divider()
 
+# 手動微調
+st.sidebar.subheader("🎯 網格微調")
+offset_x = st.sidebar.slider("水平位移 (X)", -500, 500, 0, help="整體網格向左/右平移")
+offset_y = st.sidebar.slider("垂直位移 (Y)", -500, 500, 0, help="整體網格向上/下平移")
+
+st.sidebar.divider()
+
 # 輸出設定
-st.sidebar.subheader("輸出微調")
+st.sidebar.subheader("🎨 輸出微調")
 add_padding = st.sidebar.checkbox("添加邊距留白 (10px)", value=True, help="在貼圖周圍保留透明邊距，避免貼圖看起來太擁擠")
 scale_percent = st.sidebar.slider("內容縮放比例 (%)", 50, 150, 100, help="調整貼圖內容的大小")
 fit_mode = st.sidebar.checkbox("智能適應模式", value=True, help="如果圖片縮放後超出邊界，自動縮小以完整顯示")
 
+# 去背功能
 st.sidebar.divider()
+st.sidebar.subheader("🧹 進階處理")
+if REMBG_AVAILABLE:
+    do_remove_bg = st.sidebar.checkbox("自動去除背景 (AI)", value=False, help="使用 AI 模型自動移除背景（首次執行較慢）")
+else:
+    st.sidebar.info("💡 如需去背功能，請安裝 `rembg` 與 `onnxruntime` 套件。")
+    do_remove_bg = False
 
 # 額外檔案
-st.sidebar.subheader("額外生成")
+st.sidebar.divider()
+st.sidebar.subheader("📦 額外生成")
 gen_main = st.sidebar.checkbox("生成主要圖片 (main.png)", value=True)
 gen_tab = st.sidebar.checkbox("生成標籤圖片 (tab.png)", value=True)
 
@@ -205,21 +246,26 @@ if upload_file:
     preview_img = image.copy().convert("RGBA")
     draw = ImageDraw.Draw(preview_img)
     
-    cell_w = image.width / cols
-    cell_h = image.height / rows
+    if fixed_size_mode:
+        cell_w, cell_h = 512, 416
+    else:
+        cell_w = image.width / cols
+        cell_h = image.height / rows
     
     # 畫垂直線
-    for i in range(1, cols):
-        x = i * cell_w
-        draw.line([(x, 0), (x, image.height)], fill="red", width=5)
+    for i in range(cols + 1):
+        x = int(i * cell_w + offset_x)
+        if 0 <= x <= image.width:
+            draw.line([(x, 0), (x, image.height)], fill="red", width=5)
         
     # 畫水平線
-    for i in range(1, rows):
-        y = i * cell_h
-        draw.line([(0, y), (image.width, y)], fill="red", width=5)
+    for i in range(rows + 1):
+        y = int(i * cell_h + offset_y)
+        if 0 <= y <= image.height:
+            draw.line([(0, y), (image.width, y)], fill="red", width=5)
         
     # 顯示預覽 (縮小一點以免太大)
-    st.image(preview_img, caption=f"預覽切割線 ({rows}列 x {cols}欄)", use_container_width=True)
+    st.image(preview_img, caption=f"預覽切割網格 ({rows}列 x {cols}欄)", use_container_width=True)
     
     # 執行按鈕
     col1, col2 = st.columns([1, 2])
@@ -231,7 +277,10 @@ if upload_file:
             try:
                 zip_data, count = process_image(
                     upload_file, rows, cols, scale_percent, 
-                    add_padding, fit_mode, gen_main, gen_tab
+                    add_padding, fit_mode, gen_main, gen_tab,
+                    offset_x=offset_x, offset_y=offset_y,
+                    fixed_size_mode=fixed_size_mode,
+                    do_remove_bg=do_remove_bg
                 )
                 
                 st.success(f"成功切割 {count} 張貼圖！")

@@ -34,3 +34,5 @@ pytest>=7.4.0
 
 # Web App
 streamlit>=1.30.0
+rembg>=2.0.50
+onnxruntime>=1.15.0
