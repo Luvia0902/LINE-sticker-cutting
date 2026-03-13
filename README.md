@@ -2,6 +2,13 @@
 
 這是一個基於三層架構的 Agent 自動化系統，用於處理 LINE 貼圖相關任務。
 
+## 🚀 立即使用 (線上網頁版)
+
+如果您不想安裝 Python，可以直接使用我們部署好的線上工具：
+👉 **[LINE 貼圖切割神器 - 線上版](https://share.streamlit.io/luvia0902/line-sticker-cutting/main/streamlit_app.py)**
+*(註：第一次開啟可能需要幾秒鐘載入 AI 去背模型)*
+
+
 ## 🏗️ 架構概述
 
 ### 三層架構
