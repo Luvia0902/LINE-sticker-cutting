@@ -54,6 +54,8 @@ class StickerSplitterGUI:
         self.add_padding = tk.BooleanVar(value=True)  # 添加留白
         self.generate_main_image = tk.BooleanVar(value=True)  # 生成主要圖片
         self.generate_tab_image = tk.BooleanVar(value=True)  # 生成標籤圖片
+        self.main_sticker_index = tk.IntVar(value=1)   # 第幾張貼圖作為 Main Image
+        self.tab_sticker_index = tk.IntVar(value=1)    # 第幾張貼圖作為 Tab Image
         self.scale_percent = tk.IntVar(value=100)  # 圖片縮放百分比（50-150%）
         self.fit_mode = tk.BooleanVar(value=True)  # 適應模式（避免裁切）
         self.show_grid = tk.BooleanVar(value=True)  # 顯示網格線
@@ -65,6 +67,7 @@ class StickerSplitterGUI:
         self.offset_y = tk.IntVar(value=0)  # 整體網格 Y 軸偏移
         self.fixed_size_mode = tk.BooleanVar(value=False)  # 固定裁切尺寸模式 (370x320)
         self.drag_whole_mode = tk.BooleanVar(value=False)  # 拖曳整體網格模式
+        self.remove_bg = tk.BooleanVar(value=False)  # 去背功能
         self.status_text = tk.StringVar(value="就緒")
         self.progress_value = tk.DoubleVar(value=0)
         
@@ -395,11 +398,23 @@ class StickerSplitterGUI:
             variable=self.generate_main_image
         ).pack(anchor=tk.W, pady=2)
         
+        # Main Image 來源貼圖選擇
+        main_source_frame = ttk.Frame(line_spec_frame)
+        main_source_frame.pack(fill=tk.X, padx=(20, 0), pady=1)
+        ttk.Label(main_source_frame, text="來源貼圖編號：").pack(side=tk.LEFT)
+        ttk.Spinbox(main_source_frame, from_=1, to=100, textvariable=self.main_sticker_index, width=5).pack(side=tk.LEFT, padx=2)
+        
         ttk.Checkbutton(
             line_spec_frame,
             text=f"生成標籤圖片（{TAB_IMAGE_SIZE[0]}×{TAB_IMAGE_SIZE[1]}px）",
             variable=self.generate_tab_image
         ).pack(anchor=tk.W, pady=2)
+        
+        # Tab Image 來源貼圖選擇
+        tab_source_frame = ttk.Frame(line_spec_frame)
+        tab_source_frame.pack(fill=tk.X, padx=(20, 0), pady=1)
+        ttk.Label(tab_source_frame, text="來源貼圖編號：").pack(side=tk.LEFT)
+        ttk.Spinbox(tab_source_frame, from_=1, to=100, textvariable=self.tab_sticker_index, width=5).pack(side=tk.LEFT, padx=2)
         
         # 固定尺寸模式選項
         ttk.Checkbutton(
@@ -408,6 +423,23 @@ class StickerSplitterGUI:
             variable=self.fixed_size_mode,
             command=self.load_preview
         ).pack(anchor=tk.W, pady=(5, 2))
+        
+        # 去背選項
+        bg_remove_frame = ttk.LabelFrame(spec_group, text="🧹 去背設定", padding="5")
+        bg_remove_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Checkbutton(
+            bg_remove_frame,
+            text="自動去除背景（切割後去背）",
+            variable=self.remove_bg
+        ).pack(anchor=tk.W, pady=2)
+        
+        ttk.Label(
+            bg_remove_frame,
+            text="💡 首次使用會自動下載 AI 模型（約176MB）",
+            font=("Arial", 8),
+            foreground="gray"
+        ).pack(anchor=tk.W)
         
         # 圖片縮放控制
         scale_group = ttk.LabelFrame(spec_group, text="🔍 圖片大小調整", padding="5")
@@ -1170,6 +1202,8 @@ class StickerSplitterGUI:
             message += f"輸出尺寸：370×320px (固定)\n"
             if scale_percent != 100:
                 message += f"內容縮放：{scale_percent}%\n"
+            if self.remove_bg.get():
+                message += f"去背：✓ 已啟用\n"
             message += "\n"
             if extras_text:
                 message += f"額外生成：\n{extras_text}\n\n"
@@ -1213,7 +1247,9 @@ class StickerSplitterGUI:
         
         total = rows * cols
         count = 0
-        stickers_for_extras = []  # 儲存貼圖用於生成主要圖片和標籤圖片
+        stickers_for_extras = {}  # {index: PIL Image} 儲存需要的貼圖
+        main_idx = self.main_sticker_index.get()
+        tab_idx = self.tab_sticker_index.get()
         
         # 切割圖片
         for row in range(rows):
@@ -1309,25 +1345,31 @@ class StickerSplitterGUI:
                 else:
                     sticker_resized = sticker_with_padding.resize(STICKER_SIZE, Image.Resampling.LANCZOS)
                 
+                # 去背處理
+                if self.remove_bg.get():
+                    self.status_text.set(f"正在去背 {count}/{total}...")
+                    from rembg import remove
+                    sticker_resized = remove(sticker_resized)
+                
                 # 儲存
                 output_path = output_dir / f"sticker_{count:02d}.png"
                 sticker_resized.save(output_path, 'PNG', optimize=True)
                 
-                # 儲存第一張貼圖用於生成額外圖片
-                if count == 1:
-                    stickers_for_extras.append(sticker_resized.copy())
+                # 儲存指定貼圖用於生成 Main/Tab 圖片
+                if count == main_idx or count == tab_idx:
+                    stickers_for_extras[count] = sticker_resized.copy()
         
         # 生成主要圖片（Main Image）
-        if self.generate_main_image.get() and stickers_for_extras:
+        if self.generate_main_image.get() and main_idx in stickers_for_extras:
             self.progress_value.set(60)
-            main_img = self.create_main_image(stickers_for_extras[0])
+            main_img = self.create_main_image(stickers_for_extras[main_idx])
             main_path = output_dir / "main.png"
             main_img.save(main_path, 'PNG', optimize=True)
         
         # 生成標籤圖片（Tab Image）
-        if self.generate_tab_image.get() and stickers_for_extras:
+        if self.generate_tab_image.get() and tab_idx in stickers_for_extras:
             self.progress_value.set(70)
-            tab_img = self.create_tab_image(stickers_for_extras[0])
+            tab_img = self.create_tab_image(stickers_for_extras[tab_idx])
             tab_path = output_dir / "tab.png"
             tab_img.save(tab_path, 'PNG', optimize=True)
         
